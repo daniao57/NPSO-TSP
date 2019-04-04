@@ -13,7 +13,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#define USE_2OPT    1           //是否使用2opt优化 1使用0不使用
+#define TEST_NUM    10          //实验次数
+#define USE_2OPT    0           //是否使用2opt优化 1使用0不使用
 #define PRINT_PER_LOOP (USE_2OPT ? 10 : 100) //每隔多少代打印一次结果
 #define DATA_PATH   "/Users/zhixiang/Desktop/PSO_TSP_C/rand400.txt"  //读取城市坐标文件的路径
 #define RANDOM01    (rand() % 32768 / 32768.0) //[0,1)间的随机小数
@@ -26,12 +27,10 @@
 #define MAX_ITERATION  10000     //最多迭代次数
 #define RANK_MAX    20          //2opt邻域搜索点个数
 #define BEST_DISTANT    14722.0
-
-int _cityPoint[CITY_NUM][2] = { 0 };
-int _iteration;
+int _cityPoint[CITY_NUM][2];
 int _gbestIndex;                        //gbest下标
 double _fitness[P_NUM];                 //每个粒子pbest的目标函数值，即路程
-int _res[P_NUM][CITY_NUM];              //当前粒子城市序列
+int _pos[P_NUM][CITY_NUM];              //当前粒子城市序列
 int _pest[P_NUM][CITY_NUM];             //粒子的pbest序列
 double _cityDis[CITY_NUM][CITY_NUM];    //城市间距离矩阵
 int _rank[CITY_NUM][RANK_MAX];          //离某个城市最近的若干个城市排序
@@ -67,7 +66,7 @@ double calFitness(int tsp[CITY_NUM]){
     return total;
 }
 //变异
-void mutate(int res[CITY_NUM]) {
+void mutate(int p[CITY_NUM]) {
     int r = rand() % 6;
     int index1, index2;
     do{
@@ -76,22 +75,22 @@ void mutate(int res[CITY_NUM]) {
     } while (index1 >= index2);
     int temp;
     if (r == 0) {   //插入变异1
-        temp = res[index1];
-        memmove(res + index1, res + index1 + 1, sizeof(int) * (index2 - index1));
-        res[index2] = temp;
+        temp = p[index1];
+        memmove(p + index1, p + index1 + 1, sizeof(int) * (index2 - index1));
+        p[index2] = temp;
     } else if (r == 1) {   //插入变异2
-        temp = res[index2];
-        memmove(res + index1 + 1, res + index1, sizeof(int) * (index2 - index1));
-        res[index1] = temp;
+        temp = p[index2];
+        memmove(p + index1 + 1, p + index1, sizeof(int) * (index2 - index1));
+        p[index1] = temp;
     } else if (r == 2) {   //交换变异
-        temp = res[index1];
-        res[index1] = res[index2];
-        res[index2] = temp;
+        temp = p[index1];
+        p[index1] = p[index2];
+        p[index2] = temp;
     } else if (r == 3) {   //逆序变异
         for (int i = index1; i <= (index1 + index2) / 2; i++) {
-            temp = res[i];
-            res[i] = res[index2 + index1 - i];
-            res[index2 + index1 - i] = temp;
+            temp = p[i];
+            p[i] = p[index2 + index1 - i];
+            p[index2 + index1 - i] = temp;
         }
     } else if (r == 4) {    //连续乱序变异
         int len =  rand() % (CITY_NUM / 10);
@@ -102,9 +101,9 @@ void mutate(int res[CITY_NUM]) {
         }
         for (int i = index1; i < index2; i++) {
             int pos = i + rand() % (index2 + 1 - i);
-            temp = res[i];
-            res[i] = res[pos];
-            res[pos] = temp;
+            temp = p[i];
+            p[i] = p[pos];
+            p[pos] = temp;
         }
     }  else if (r == 5) { //区域乱序变异
         int series[CITY_NUM] = { 0 };
@@ -118,19 +117,19 @@ void mutate(int res[CITY_NUM]) {
         }
         for (int i = 0; i < seriesNum - 1; i++) {
             int pos = i + rand() % (seriesNum - i);
-            temp = res[series[i]];
-            res[series[i]] = res[series[pos]];
-            res[series[pos]] = temp;
+            temp = p[series[i]];
+            p[series[i]] = p[series[pos]];
+            p[series[pos]] = temp;
         }
     }
 }
 //更新适应值
 void updateFitness(){
     for (int i = 0; i < P_NUM; i++){
-        double fit = calFitness(_res[i]);
+        double fit = calFitness(_pos[i]);
         if (fit < _fitness[i] || (_gbestIndex != i && RANDOM01 < 0.01)){
             _fitness[i] = fit;
-            memcpy(_pest[i], _res[i], sizeof(int) * CITY_NUM);
+            memcpy(_pest[i], _pos[i], sizeof(int) * CITY_NUM);
         }
         if (fit < _fitness[_gbestIndex]){
             _gbestIndex = i;
@@ -145,15 +144,15 @@ void initRes() {
     }
     for (int n = 0; n < P_NUM; n++) {
         for (int i = 0; i < CITY_NUM; i++) {
-            _res[n][i] = i;
+            _pos[n][i] = i;
         }
         for (int i = CITY_NUM - 1; i > 0; i--) {
             int index = rand() % (i + 1);
-            int temp = _res[n][index];
-            _res[n][index] = _res[n][i];
-            _res[n][i] = temp;
+            int temp = _pos[n][index];
+            _pos[n][index] = _pos[n][i];
+            _pos[n][i] = temp;
         }
-        memcpy(_pest[n], _res[n], sizeof(int) * CITY_NUM);
+        memcpy(_pest[n], _pos[n], sizeof(int) * CITY_NUM);
     }
 }
 //2_opt优化
@@ -230,13 +229,13 @@ void NPSO() {
     for (int i = 0; i < P_NUM; i++) {
         double r = RANDOM01;
         if (r < C1) {
-            memcpy(_res[i], _pest[i], sizeof(int) * CITY_NUM);
+            memcpy(_pos[i], _pest[i], sizeof(int) * CITY_NUM);
         } else if (r < C2){
-            memcpy(_res[i], _pest[_gbestIndex], sizeof(int) * CITY_NUM);
+            memcpy(_pos[i], _pest[_gbestIndex], sizeof(int) * CITY_NUM);
         }
-        mutate(_res[i]);
+        mutate(_pos[i]);
         if (USE_2OPT) {
-            search_2opt(_res[i]);
+            search_2opt(_pos[i]);
         }
     }
 }
@@ -278,40 +277,58 @@ int main(int argc, const char * argv[]){
     srand((unsigned int)time(NULL));
     readCityData();
     initDis();
-    initRes();
-    struct timeval startTime;
-    gettimeofday(&startTime, NULL);
-    double lastBest = 1e10;
-    int same = 0;
-    for (int n = 0; n < MAX_ITERATION; n++){
-        NPSO();
-        updateFitness();
-        if (lastBest - _fitness[_gbestIndex] < 1e-10) {
-            same++;
-        } else {
-            same = 0;
+    int loopNum[TEST_NUM];
+    double bestFit[TEST_NUM];
+    double error[TEST_NUM];
+    double timeUsed[TEST_NUM];
+    for (int t = 0; t < TEST_NUM; t++) {
+        initRes();
+        struct timeval startTime;
+        gettimeofday(&startTime, NULL);
+        double lastBest = 1e10;
+        int same = 0;
+        for (int n = 0; n < MAX_ITERATION; n++){
+            NPSO();
+            updateFitness();
+            if (lastBest - _fitness[_gbestIndex] < 1e-10) {
+                same++;
+            } else {
+                same = 0;
+            }
+            lastBest = _fitness[_gbestIndex];
+            int end = 0;
+            if (same >= SAME_STOP || (_fitness[_gbestIndex] - BEST_DISTANT) * 100 / BEST_DISTANT < ERROR_STOP){
+                end = 1;
+            }
+            if (n % PRINT_PER_LOOP == PRINT_PER_LOOP - 1 || end) {
+                struct timeval endTime;
+                gettimeofday(&endTime, NULL);
+                double runningTime = endTime.tv_sec - startTime.tv_sec + (endTime.tv_usec - startTime.tv_usec) / 1000000.0;
+                printf("%d-%4d %.2f, %.3lf\n", t + 1, n + 1, _fitness[_gbestIndex], runningTime);
+                timeUsed[t] = runningTime;
+                loopNum[t] = n + 1;
+            }
+            if (end) {
+                break;
+            }
         }
-        lastBest = _fitness[_gbestIndex];
-        int end = 0;
-        if (same >= SAME_STOP || (_fitness[_gbestIndex] - BEST_DISTANT) * 100 / BEST_DISTANT < ERROR_STOP){
-            end = 1;
-        }
-        if (n % PRINT_PER_LOOP == PRINT_PER_LOOP - 1 || end) {
-            struct timeval endTime;
-            gettimeofday(&endTime, NULL);
-            double runningTime = endTime.tv_sec - startTime.tv_sec + (endTime.tv_usec - startTime.tv_usec) / 1000000.0;
-            printf("%4d %.2f, %.3lf\n", n + 1, _fitness[_gbestIndex], runningTime);
-        }
-        if (end) {
-            break;
-        }
+        bestFit[t] = _fitness[_gbestIndex];
+        error[t] = (_fitness[_gbestIndex] - BEST_DISTANT) / BEST_DISTANT;
     }
-    printf("城市数: %d, 最优长度%.2f, 计算结果: %.2f, 误差: %.4f%%\n", CITY_NUM, BEST_DISTANT, _fitness[_gbestIndex], (_fitness[_gbestIndex] - BEST_DISTANT) * 100 / BEST_DISTANT);
-    printf("结果路径:\n");
-    for (int i = 0; i < CITY_NUM; i++) {
-        printf("%d ", _pest[_gbestIndex][i] + 1);
+    printf("实验\t迭代次数\t路径长度\t与最优解误差\t用时\n");
+    for (int t = 0; t < TEST_NUM; t++) {
+        printf("%d\t%d\t%.2f\t%.2f%%\t%.2f秒\n", t + 1, loopNum[t], bestFit[t], error[t] * 100, timeUsed[t]);
     }
-    printf("\n");
+    double avgLoopNum = 0;
+    double avgBestFit = 0;
+    double avgError = 0;
+    double avgTimeUsed = 0;
+    for (int t = 0; t < TEST_NUM; t++) {
+        avgLoopNum += loopNum[t] * 1.0/ TEST_NUM;
+        avgBestFit += bestFit[t] / TEST_NUM;
+        avgError += error[t] / TEST_NUM;
+        avgTimeUsed += timeUsed[t] / TEST_NUM;
+    }
+    printf("平均\t%.f\t%.2f\t%.2f%%\t%.2f秒\n",  avgLoopNum, avgBestFit, avgError * 100, avgTimeUsed);
     return 0;
 }
-
